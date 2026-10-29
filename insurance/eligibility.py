@@ -32,13 +32,24 @@ def verify_eligibility(payer_key, member_id, member):
     return parse_eligibility_response(resp)
 
 
+def _select_coverage(resp):
+    # Clearinghouse API 2026-10-01 returns a ``coverages`` list; older versions
+    # returned a single ``coverage`` object.
+    coverages = resp.get("coverages")
+    if coverages is None:
+        coverages = [resp["coverage"]] if resp.get("coverage") else []
+    if not coverages:
+        raise EligibilityError("clearinghouse returned no coverage")
+    return next((c for c in coverages if c.get("status") == "active"), coverages[0])
+
+
 def parse_eligibility_response(resp):
-    coverage = resp["coverage"]
-    benefits = {b["serviceType"]: b["covered"] for b in coverage["benefits"]}
+    coverage = _select_coverage(resp)
+    benefits = {b["serviceType"]: b["covered"] for b in coverage.get("benefits", [])}
     return EligibilityResult(
         eligible=coverage["status"] == "active",
         payer_name=resp["payer"]["name"],
         plan_name=coverage["planName"],
-        group_number=coverage["groupNumber"].strip(),
+        group_number=(coverage.get("groupNumber") or "").strip(),
         maternity_covered=benefits.get("maternity", False),
     )
